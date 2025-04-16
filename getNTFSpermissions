@@ -1,0 +1,68 @@
+# Import the necessary module for Excel export
+Import-Module -Name ImportExcel -ErrorAction SilentlyContinue
+
+if (-not (Get-Module -ListAvailable -Name ImportExcel)) {
+    Write-Host "Installing ImportExcel module..."
+    Install-Module -Name ImportExcel -Force -Scope CurrentUser
+}
+
+# Function to get NTFS permissions
+function Get-NTFSPermissions {
+    param (
+        [string]$Path,
+        [int]$Depth = 5
+    )
+
+    $results = @()
+
+    # Get all folders up to the specified depth
+    $folders = Get-ChildItem -Path $Path -Recurse -Directory -Depth $Depth -ErrorAction SilentlyContinue
+    $folders += Get-Item -Path $Path -ErrorAction SilentlyContinue
+
+    foreach ($folder in $folders) {
+        $acl = Get-Acl -Path $folder.FullName
+        foreach ($access in $acl.Access) {
+            $results += [PSCustomObject]@{
+                Path            = $folder.FullName
+                Identity        = $access.IdentityReference
+                FileSystemRights = $access.FileSystemRights
+                AccessControlType = $access.AccessControlType
+                IsInherited      = $access.IsInherited
+                InheritanceFlags = $access.InheritanceFlags
+                PropagationFlags = $access.PropagationFlags
+            }
+        }
+    }
+
+    return $results
+}
+
+# Main script
+# Specify the path to the text file containing the list of share paths
+$sharePathsFile = "C:\Path\To\SharePaths.txt"
+
+if (-not (Test-Path -Path $sharePathsFile)) {
+    Write-Host "The file $sharePathsFile does not exist. Please provide a valid file path."
+    exit 1
+}
+
+# Read the share paths from the file
+$sharePaths = Get-Content -Path $sharePathsFile
+
+$allResults = @()
+
+foreach ($sharePath in $sharePaths) {
+    if (-not (Test-Path -Path $sharePath)) {
+        Write-Host "The path $sharePath does not exist or is not accessible. Skipping..."
+        continue
+    }
+
+    Write-Host "Processing $sharePath..."
+    $allResults += Get-NTFSPermissions -Path $sharePath -Depth 5
+}
+
+# Export to Excel
+$excelPath = Join-Path -Path $env:USERPROFILE -ChildPath "Desktop\NTFSPermissions.xlsx"
+$allResults | Export-Excel -Path $excelPath -AutoSize -Title "NTFS Permissions" -Show
+
+Write-Host "NTFS permissions exported to $excelPath"
